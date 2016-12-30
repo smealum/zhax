@@ -376,6 +376,9 @@ void hello()
 		bottom_fb[i * 3 + 2] = 0xFF;
 	}
 
+	// // KernelSetState for firm relaunch reboot
+	// ((void (*)(u32,u32,u32))0xFFF15DBC)(0, 0x20000002, 0x00040138);
+
 	while(1);
 }
 
@@ -403,16 +406,37 @@ void speedracer()
 	while(1)
 	{
 		*(vu32*)&test_buf_mirror[0x0] = 0x00000040;
-		// *(vu32*)&test_buf_mirror[0x1] = 0xdff80000 + 0x644; // exception vector
-		*(vu32*)&test_buf_mirror[0x1] = 0xdff80000 + 0x638; // exception vector
+		*(vu32*)&test_buf_mirror[0x1] = 0xdff80000 + 0x644; // exception vector
+		// *(vu32*)&test_buf_mirror[0x1] = 0xdff80000 + 0x638; // exception vector
 		*(vu32*)&test_buf_mirror[0x2] = 0xb0b0b0b0;
-		// *(vu32*)&test_buf_mirror[0x10] = 0xdff80000 + 0x644; // exception vector
-		*(vu32*)&test_buf_mirror[0x10] = 0xdff80000 + 0x638; // exception vector
+		*(vu32*)&test_buf_mirror[0x10] = 0xdff80000 + 0x644; // exception vector
+		// *(vu32*)&test_buf_mirror[0x10] = 0xdff80000 + 0x638; // exception vector
 		*(vu32*)&test_buf_mirror[0x11] = 0xd0d0d0d0;
 		*(vu32*)&test_buf_mirror[0x12] = val; // kthread
 	}
 
 	// svcExitThread();
+}
+
+Handle nsHandle = 0;
+
+Result NS_TerminateProcess(u32 pid)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = 0x00040040;
+	cmdbuf[1] = pid;
+
+	if(!nsHandle) srvGetServiceHandle(&nsHandle, "ns:s");
+
+	printf("NS_TerminateProcess %08X %08x ", nsHandle, pid);
+	
+	if((ret = svcSendSyncRequest(nsHandle))!=0) return ret;
+
+	printf("%08X\n", cmdbuf[1]);
+
+	return (Result)cmdbuf[1];
 }
 
 int main(int argc, char **argv)
@@ -530,9 +554,9 @@ int main(int argc, char **argv)
 		// printf("ret %08X\n", (unsigned int)ret);
 		// u32 val = ((u32 (*)(void))test_buf)();
 		// printf("val %08X\n", (unsigned int)val);
-
+	
 		aptOpenSession();
-		APT_SetAppCpuTimeLimit(NULL, 30);
+		APT_SetAppCpuTimeLimit(NULL, 5);
 		aptCloseSession();
 
 		// set max priority on current thread
@@ -550,6 +574,30 @@ int main(int argc, char **argv)
 
 		if(!ret)
 		{
+			NS_TerminateProcess(0x25); // dlp    
+			NS_TerminateProcess(0x24); // nim    
+			NS_TerminateProcess(0x23); // ndm    
+			NS_TerminateProcess(0x22); // news   
+			NS_TerminateProcess(0x21); // act    
+			NS_TerminateProcess(0x20); // boss   
+			NS_TerminateProcess(0x1f); // ac     
+			NS_TerminateProcess(0x1e); // friends
+			NS_TerminateProcess(0x1d); // cecd   
+			NS_TerminateProcess(0x1c); // ssl    
+			NS_TerminateProcess(0x1b); // http   
+			NS_TerminateProcess(0x1a); // socket 
+			NS_TerminateProcess(0x19); // nwm    
+			NS_TerminateProcess(0x18); // ir     
+			NS_TerminateProcess(0x17); // mic    
+			NS_TerminateProcess(0x16); // camera 
+			NS_TerminateProcess(0x15); // csnd   
+			NS_TerminateProcess(0x14); // gsp
+			NS_TerminateProcess(0x13); // am
+			NS_TerminateProcess(0x12); // dsp
+			NS_TerminateProcess(0x11); // codec
+			NS_TerminateProcess(0x10); // hid
+			NS_TerminateProcess(9); // i2c
+
 			Handle thread = 0;
 			
 			// ret = svcCreateThread(&thread, speedracer, 0, (u32*)(stack + stack_len), 0x20, 1);
