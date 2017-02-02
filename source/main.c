@@ -3,34 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <malloc.h>
+#include <dirent.h>
 
 #include "rohax2.h"
 #include "zhax.h"
-
-Result mountRomfs()
-{
-	u8 lowpath[0xC] = {0};
-
-	Result ret;
-	Handle romfs_handle;
-	Handle fs_handle;
-
-    if ((ret = srvGetServiceHandleDirect(&fs_handle, "fs:USER"))) return ret;
-    if ((ret = FSUSER_Initialize(fs_handle))) return ret;
-
-	FS_Path archPath = { PATH_EMPTY, 1, (u8*)"" };
-	FS_Path filePath = { PATH_BINARY, sizeof(lowpath), lowpath };
-
-	fsUseSession(fs_handle);
-
-	ret = FSUSER_OpenFileDirectly(&romfs_handle, ARCHIVE_ROMFS, archPath, filePath, FS_OPEN_READ, 0);
-
-	fsEndUseSession();
-
-	if(ret) return ret;
-
-	return romfsInitFromFile(romfs_handle, 0);
-}
 
 int main(int argc, char **argv)
 {
@@ -43,14 +19,9 @@ int main(int argc, char **argv)
 
 	gfxSwapBuffers();
 	gfxSwapBuffers();
-
-	Result ret = mountRomfs();
-	if(ret)
-	{
-		printf("failed to mount romfs %08X\n", (unsigned int)ret);
-		goto main_done;
-	}
 	
+	Result ret;
+
 	if((ret = rohax2())) goto main_done;
 	if((ret = zhax())) goto main_done;
 

@@ -10,9 +10,9 @@
 #include "ro_command_handler_bin.h"
 
 void* crr_bin;
-int crr_bin_size;
+u32 crr_bin_size;
 void* crs_bin;
-int crs_bin_size;
+u32 crs_bin_size;
 
 typedef struct
 {
@@ -50,7 +50,9 @@ void raceThread(volatile raceParameters_s* rp)
 
 Handle roHandle = 0;
 u32 *crs_buf, *crs_mirror, *crr_buf, *crr_mirror;
-u32 *cro_buf, *cro_mirror, *cro_orig;
+u32 *cro_buf, *cro_mirror;
+
+void* cro_orig;
 u32 cro_size = 0;
 
 raceParameters_s raceparam = {0};
@@ -74,18 +76,9 @@ void setupRoWrites()
 		printf("ldr:ro crr %X\n", (unsigned int)ret);
 	}
 
-	FILE* f = fopen("sdmc:/oss.cro", "rb");
-	fseek(f, 0, SEEK_END);
-	cro_size = ftell(f);
-	fseek(f, 0, SEEK_SET);
-
 	cro_buf = (u32*)0x0b000000;
 	cro_mirror = (u32*)0x0c000000;
 	allocateHeapHax(cro_size, &cro_buf, &cro_mirror);
-
-	cro_orig = malloc(cro_size);
-	fread(cro_orig, 1, cro_size, f);
-	fclose(f);
 
 	u32* test_ptr = &cro_mirror[50];
 
@@ -121,7 +114,43 @@ void doRoWrite(u32 address, u32 dst_address, u32 data_address, u32 bss_address, 
 	printf("\n");
 }
 
-Result loadFile(char* path, void** _buffer, int* _size)
+Result mountRomfs(u64 tid)
+{
+	Result ret;
+	Handle romfs_handle;
+	Handle fs_handle;
+
+    if ((ret = srvGetServiceHandleDirect(&fs_handle, "fs:USER"))) return ret;
+    if ((ret = FSUSER_Initialize(fs_handle))) return ret;
+
+	fsUseSession(fs_handle);
+
+	if(tid)
+	{
+		u8 lowpath[0x14] = {0};
+		u32 archpath[0x4] = {0x00018202, 0x0004001B, 0, 0};
+
+		FS_Path archPath = { PATH_BINARY, sizeof(archpath), archpath };
+		FS_Path filePath = { PATH_BINARY, sizeof(lowpath), lowpath };
+
+		ret = FSUSER_OpenFileDirectly(&romfs_handle, ARCHIVE_SAVEDATA_AND_CONTENT, archPath, filePath, FS_OPEN_READ, 0);
+	}else{
+		u8 lowpath[0xC] = {0};
+
+		FS_Path archPath = { PATH_EMPTY, 1, (u8*)"" };
+		FS_Path filePath = { PATH_BINARY, sizeof(lowpath), lowpath };
+
+		ret = FSUSER_OpenFileDirectly(&romfs_handle, ARCHIVE_ROMFS, archPath, filePath, FS_OPEN_READ, 0);
+	}
+
+	fsEndUseSession();
+
+	if(ret) return ret;
+
+	return romfsInitFromFile(romfs_handle, 0);
+}
+
+Result loadFile(char* path, void** _buffer, u32* _size)
 {
 	FILE* f = fopen(path, "rb");
 
@@ -133,7 +162,7 @@ Result loadFile(char* path, void** _buffer, int* _size)
 	
 	// get size
 	fseek(f, 0, SEEK_END);
-	int size = ftell(f);
+	u32 size = ftell(f);
 	fseek(f, 0, SEEK_SET);
 
 	// read file
@@ -159,8 +188,26 @@ Result rohax2()
 		return -1;
 	}
 
+	// load CRR/CRS from act romfs
+	ret = mountRomfs(0);
+	if(ret)
+	{
+		printf("failed to mount act romfs %08X\n", (unsigned int)ret);
+		return -2;
+	}
 	if((ret = loadFile("romfs:/.crr/static.crr", &crr_bin, &crr_bin_size))) return -2;
 	if((ret = loadFile("romfs:/cro/static.crs", &crs_bin, &crs_bin_size))) return -3;
+	romfsExit();
+
+	// load shared oss.cro
+	ret = mountRomfs(0x0004001B00018202);
+	if(ret)
+	{
+		printf("failed to mount cro romfs %08X\n", (unsigned int)ret);
+		return -2;
+	}
+	if((ret = loadFile("romfs:/cro2/oss.cro", &cro_orig, &cro_size))) return -2;
+	romfsExit();
 
 	setupRoWrites();
 
