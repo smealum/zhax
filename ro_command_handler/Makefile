@@ -1,3 +1,5 @@
+export CTRULIB:=$(shell pwd)/libctru
+
 ifeq ($(strip $(DEVKITARM)),)
 $(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>devkitARM")
 endif
@@ -47,6 +49,8 @@ ctrulib:
 
 $(PROJECTNAME).bin: $(PROJECTNAME).elf
 	$(OBJCOPY) -O binary $< $@
+	@mkdir -p ../data
+	@cp $@ ../data/
 
 $(PROJECTNAME).elf: $(OFILES) ctrulib
 	$(LINK) $(LDFLAGS) -o $(PROJECTNAME).elf $(filter-out build/crt0.o, $(OFILES)) -g -lctru -lm -lc -lg
@@ -59,13 +63,16 @@ clean:
 -include $(DFILES)
 
 build/%.o: source/%.c
+	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 	@$(CC) -MM $< > build/$*.d
 
 build/%.o: source/%.s
+	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 	@$(CC) -MM $< > build/$*.d
 
 build/%.bin.o: data/%.bin
+	@mkdir -p build
 	@echo $(notdir $<)
 	@$(bin2o)

@@ -36,22 +36,23 @@ void allocateHeapHax(u32 size, u32** main_mapping, u32** secondary_mapping)
 
 	svcSleepThread(1 * 1000 * 1000);
 	GSPGPU_InvalidateDataCache((u8*)linear_buffer, 0x200);
-	printf("data %08X %08X %08X %08X\n", linear_buffer[0], linear_buffer[1], linear_buffer[2], linear_buffer[3]);
-	printf("data %08X %08X %08X %08X\n", linear_buffer[4], linear_buffer[5], linear_buffer[6], linear_buffer[7]);
+	// printf("data %08X %08X %08X %08X\n", linear_buffer[0], linear_buffer[1], linear_buffer[2], linear_buffer[3]);
+	// printf("data %08X %08X %08X %08X\n", linear_buffer[4], linear_buffer[5], linear_buffer[6], linear_buffer[7]);
 
 	void* orig_header = malloc(0x200);
 	memcpy(orig_header, linear_buffer, 0x200);
 
 	{
-		Result ret = svcControlMemory((u32*)main_mapping, (u32)*main_mapping, 0, size, 0x3, 0x3);
-		printf("alloc %x %x\n", (unsigned int)ret, (unsigned int)*main_mapping);
+		svcControlMemory((u32*)main_mapping, (u32)*main_mapping, 0, size, 0x3, 0x3);
+		// Result ret = svcControlMemory((u32*)main_mapping, (u32)*main_mapping, 0, size, 0x3, 0x3);
+		// printf("alloc %x %x\n", (unsigned int)ret, (unsigned int)*main_mapping);
 
 		GX_TextureCopy((void*)0x16000000, 0xFFFFFFFF, (void*)linear_buffer, 0xFFFFFFFF, 0x1000, 0x8);
 
 		svcSleepThread(1 * 1000 * 1000);
 		GSPGPU_InvalidateDataCache((u8*)linear_buffer, 0x200);
-		printf("data %08X %08X %08X %08X\n", linear_buffer[0], linear_buffer[1], linear_buffer[2], linear_buffer[3]);
-		printf("data %08X %08X %08X %08X\n", linear_buffer[4], linear_buffer[5], linear_buffer[6], linear_buffer[7]);
+		// printf("data %08X %08X %08X %08X\n", linear_buffer[0], linear_buffer[1], linear_buffer[2], linear_buffer[3]);
+		// printf("data %08X %08X %08X %08X\n", linear_buffer[4], linear_buffer[5], linear_buffer[6], linear_buffer[7]);
 	}
 
 	{
@@ -66,7 +67,7 @@ void allocateHeapHax(u32 size, u32** main_mapping, u32** secondary_mapping)
 	{
 		if(!*secondary_mapping) *secondary_mapping = (u32*)(((u32)*main_mapping) + size);
 		Result ret = svcControlMemory((u32*)secondary_mapping, (u32)*secondary_mapping, 0, size, 0x3, 0x3);
-		printf("alloc %x %x\n", (unsigned int)ret, (unsigned int)*secondary_mapping);
+		// printf("alloc %x %x\n", (unsigned int)ret, (unsigned int)*secondary_mapping);
 
 		if(ret) *secondary_mapping = NULL;
 
@@ -74,8 +75,8 @@ void allocateHeapHax(u32 size, u32** main_mapping, u32** secondary_mapping)
 
 		svcSleepThread(1 * 1000 * 1000);
 		GSPGPU_InvalidateDataCache((u8*)linear_buffer, 0x200);
-		printf("data %08X %08X %08X %08X\n", linear_buffer[0], linear_buffer[1], linear_buffer[2], linear_buffer[3]);
-		printf("data %08X %08X %08X %08X\n", linear_buffer[4], linear_buffer[5], linear_buffer[6], linear_buffer[7]);
+		// printf("data %08X %08X %08X %08X\n", linear_buffer[0], linear_buffer[1], linear_buffer[2], linear_buffer[3]);
+		// printf("data %08X %08X %08X %08X\n", linear_buffer[4], linear_buffer[5], linear_buffer[6], linear_buffer[7]);
 	}
 
 	linearFree(linear_buffer);

