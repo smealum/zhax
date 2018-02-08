@@ -66,11 +66,6 @@ void ktest()
 
 		for(i = 0; i < num_wait_threads; i++)
 		{
-			// const u32 stack_len = 0x1000;
-			// u8* stack = malloc(stack_len);
-
-			// Result ret = svcCreateThread(&wait_thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x20, 0);
-			// Result ret = svcCreateThread(&wait_thread_handles[i], wait_thread, 0, (u32*)(stack + stack_len), 0x19, 1);
 			svcCreateThread(&wait_thread_handles[i], wait_thread, 0, wait_thread_stacks[i], 0x19, 1);
 
 			// printf("thread %02d %08X %08X %08X\n", i, (unsigned int)wait_thread_handles[i], (unsigned int)ret, (unsigned int)test_buf_mirror[2]);
@@ -160,6 +155,7 @@ void speedracer()
 	{
 		val_next = *(vu32*)&test_buf_mirror[0x0];
 
+		// shouldn't this condition always be true since we set this to 0x40 at the top?
 		if(val_next && val_next != 0xdadadada)
 		{
 			break;
@@ -222,7 +218,10 @@ Result zhax()
 			{
 				wait_thread_stacks[i] = (u8*)malloc(stack_len) + stack_len;
 			}
-		// kill all the processes (in reverse creation order)
+		// kill all the processes (in reverse-ish creation order)
+			NS_TerminateTitle(0x4013000004002ll, 1 * 1000 * 1000); // nfc
+			NS_TerminateTitle(0x4013000004102ll, 1 * 1000 * 1000); // mvd
+			NS_TerminateTitle(0x4013000004202ll, 1 * 1000 * 1000); // qtm
 			NS_TerminateTitle(0x4013000002802ll, 1 * 1000 * 1000); // dlp     ; 0x25
 			NS_TerminateTitle(0x4013000002c02ll, 1 * 1000 * 1000); // nim     ; 0x24
 			NS_TerminateTitle(0x4013000002b02ll, 1 * 1000 * 1000); // ndm     ; 0x23
@@ -254,6 +253,8 @@ Result zhax()
 			NS_TerminateTitle(0x4013000001b02ll, 1 * 1000 * 1000); // gpio    ; 0x08
 			NS_TerminateTitle(0x4013000001702ll, 1 * 1000 * 1000); // cfg     ; 0x07
 			NS_TerminateTitle(0x4013000002202ll, 1 * 1000 * 1000); // ptm     ; 0x06
+
+
 			// need to do menu second to last because killing it kills our ns:s handle
 			// NS_TerminateTitle(0x4003000008202ll, 1 * 1000 * 1000); // menu (JPN)
 			// NS_TerminateTitle(0x4003000008F02ll, 1 * 1000 * 1000); // menu (USA)
@@ -263,12 +264,10 @@ Result zhax()
 
 		Handle thread = 0;
 		
-		// ret = svcCreateThread(&thread, speedracer, 0, (u32*)(stack + stack_len), 0x20, 1);
 		ret = svcCreateThread(&thread, ktest, 0, (u32*)(stack + stack_len), 0x20, 1);
 
 		printf("hi\n");
 
-		// ktest();
 		speedracer();
 
 		while(1) printf("done\n");

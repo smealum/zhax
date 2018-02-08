@@ -3,7 +3,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <malloc.h>
-#include <dirent.h>
 
 #include "rohax2.h"
 #include "zhax.h"
