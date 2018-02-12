@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <malloc.h>
 
+#include "twlhax.h"
 #include "rohax2.h"
 #include "zhax.h"
 
@@ -21,6 +22,7 @@ int main(int argc, char **argv)
 	
 	Result ret;
 
+	if((ret = twlhaxInit())) goto main_done;
 	if((ret = rohax2())) goto main_done;
 	if((ret = zhax())) goto main_done;
 

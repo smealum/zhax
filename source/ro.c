@@ -55,3 +55,17 @@ Result LDRRO_LoadCro(Handle* handle, void* cro_buf, u32 cro_size, u32 cro_mirror
 
 	return cmdbuf[1];
 }
+
+Result LDRRO_Shutdown(Handle* handle, void* crs_buf)
+{
+	u32* cmdbuf=getThreadCommandBuffer();
+	cmdbuf[0]=0x00080042; //request header code
+	cmdbuf[1]=(u32)crs_buf;
+	cmdbuf[2]=0x0;
+	cmdbuf[3]=0xffff8001;
+
+	Result ret=0;
+	if((ret=svcSendSyncRequest(*handle)))return ret;
+
+	return cmdbuf[1];
+}

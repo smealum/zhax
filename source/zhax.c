@@ -6,6 +6,7 @@
 
 #include "text.h"
 #include "rohax2.h"
+#include "twlhax.h"
 #include "asm.h"
 #include "ns.h"
 
@@ -102,9 +103,11 @@ int hello(u32* list_obj, u32* kobj)
 	*(vu32*)&test_buf_mirror[0x21] = 0xc0c0c0c0;
 	*(vu32*)&test_buf_mirror[0x22] = kobj_buffer_kva;
 
+	// perform twlhax stuff
+	twlhaxKernel11();
+
 	// draw some more
 	drawString(bottom_fb, "hello from arm11 kernel again", 10, 20);
-	// drawHex(bottom_fb, val_next, 10, 30);
 	flush_dcache();
 
 	// *(u32*) 0xdeadbabe = 0xbabe;
